@@ -1,0 +1,102 @@
+Option Explicit
+
+Sub EmailPDFsToInvestors()
+    
+    'VBA Excel macro to cycle through dropdown list of investors
+    'This in turn produces (natively) the investor's summary report
+    'the macro then emails the report as a PDF
+    
+    
+    Dim SummarySh As Worksheet
+    Dim DropDownCell As Range
+    Dim InvestorList As Range
+    Dim Investor As Range
+    Dim PDFpath As String, Syndicate As String, Qtr As String, EmailAddress As String
+    Dim NotEmailed As String
+    NotEmailed = ""
+    
+    'initiate basic variables
+    '******** switch to named ranges if possible ************
+    Set SummarySh = Sheets("Summary")
+    Syndicate = SummarySh.Range("I2")
+    Qtr = Format(SummarySh.Range("I3"), "yyyymmdd")
+    Set DropDownCell = SummarySh.Range("I4")
+
+    'array of investors
+    Set InvestorList = Evaluate(DropDownCell.Validation.Formula1)
+    
+    'cycle through investors
+    For Each Investor In InvestorList
+        If Investor = "0" Then GoTo NextInvestor
+        If Investor = "" Then GoTo NextInvestor
+        
+        DropDownCell = Investor.Value
+        
+        PDFpath = SaveAsPdf(SummarySh, Investor.Value)
+
+        '******** perhaps include a cell on summary worksheet to hold email address? *************
+        If Sheets("Investor emails").Range("B:B").Find(Investor) Is Nothing Then
+            NotEmailed = NotEmailed & vbCrLf & Investor
+            EmailAddress = ""
+        Else
+            EmailAddress = WorksheetFunction.VLookup(Investor, Sheets("Investor emails").Range("B:F"), 5, 0)
+            Call SendEmail(PDFpath, Syndicate, Qtr, EmailAddress)
+        End If
+        
+NextInvestor:
+    Next Investor
+    
+    If NotEmailed <> "" Then
+        MsgBox "The following investors have PDF files that have not been emailed:" & NotEmailed
+    End If
+    
+End Sub
+Function SaveAsPdf(sh As Worksheet, Investor As String)
+    Dim PDFpath As String
+    
+    'construct file name with timestamp to avoid overwriting old files
+    PDFpath = ActiveWorkbook.Path & "\" _
+        & Left(ActiveWorkbook.Name, (InStr(1, ActiveWorkbook.Name, ".") - 1)) _
+        & " - Investor " & Investor _
+        & " - Generated " & Format(Now, "yyyy-mm-dd hh-mm-ss") & ".pdf"
+        
+    'create PDF
+    sh.ExportAsFixedFormat Type:=xlTypePDF, Filename:=PDFpath, Quality:=xlQualityStandard, _
+        IncludeDocProperties:=True, IgnorePrintAreas:=False, OpenAfterPublish:=False
+    
+    'return value
+    SaveAsPdf = PDFpath
+
+End Function
+
+Sub SendEmail(AttachmentFilePath As String, Syndicate As String, Qtr As String, EmailAddress As String)
+    Dim OutlookApp As Object
+    Dim OutlookMail As Object
+    
+    Set OutlookApp = CreateObject("Outlook.Application")
+    Set OutlookMail = OutlookApp.CreateItem(0)
+    
+    'construct message subject
+    Dim MsgSubject As String
+    MsgSubject = Syndicate & " quarterly report - " & Qtr
+    
+    'construct message body
+    Dim MsgBody As String
+    MsgBody = "Please find attached the quarterly report for the " _
+        & Syndicate _
+        & " syndicate for the period ending " _
+        & Qtr _
+        & "."
+        
+    'Create email and attach file
+    With OutlookMail
+        .Display
+        .To = EmailAddress
+'        .CC =      ************* add as desired ****************
+'        .BCC =     ************* add as desired ****************
+        .Subject = MsgSubject
+        .Body = MsgBody
+        .Attachments.Add AttachmentFilePath
+        .Send
+    End With
+End Sub
